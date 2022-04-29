@@ -23,4 +23,4 @@ jobs:
       - name: Check collation
         shell: pwsh
         run: |
-          ./Test-Collation -ExpectedCollation SQL_Latin1_General_CP1_CI_AS -UserName sa -Password dbatools.I0
+          ./Test-Collation -ExpectedCollation Latin1_General_CS_AS_KS_WS -UserName sa -Password dbatools.I0
