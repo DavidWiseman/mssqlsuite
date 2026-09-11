@@ -189,6 +189,7 @@ if ("sqlengine" -in $Install) {
         Write-Warning "INSTALL ARGS: $installArgs"
 
         if ($boxUri -eq "") {
+            Write-Output "Downloading small setup utility"
             # For 2016, 2017 & 2025.
             # Download the small setup utility that allows us to download the full installation media
             Invoke-WebRequest -Uri $exeUri -OutFile c:\temp\downloadsetup.exe
@@ -198,6 +199,7 @@ if ("sqlengine" -in $Install) {
             Get-ChildItem -Name "SQLServer*.box" | Rename-Item -NewName "sqlsetup.box"
             Get-ChildItem -Name "SQLServer*.exe" | Rename-Item -NewName "sqlsetup.exe"
         } else {
+            Write-Output "Downloading *.exe and *.box files"
             # For 2019 & 2022
             Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
             Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
