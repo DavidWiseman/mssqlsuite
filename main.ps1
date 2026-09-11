@@ -12,6 +12,34 @@ if (-not $isLinux -and -not $Ismacos -and -not $IsWindows) {
     # its powershell
     $isWindows = $true
 }
+
+function Invoke-DownloadWithRetry {
+    # Downloads a file with retries and validates it isn't a truncated/corrupt response,
+    # since large SQL Server media downloads occasionally fail transiently in CI.
+    param (
+        [Parameter(Mandatory)][string]$Uri,
+        [Parameter(Mandatory)][string]$OutFile,
+        [int]$MaxAttempts = 3,
+        [long]$MinimumBytes = 102400
+    )
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            Write-Output "Downloading '$Uri' to '$OutFile' (attempt $attempt of $MaxAttempts)"
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile
+            $file = Get-Item $OutFile -ErrorAction Stop
+            if ($file.Length -lt $MinimumBytes) {
+                throw "Downloaded file '$OutFile' is only $($file.Length) bytes, which looks truncated or corrupt."
+            }
+            return
+        } catch {
+            Write-Warning "Download attempt $attempt of '$Uri' failed: $($_.Exception.Message)"
+            if ($attempt -eq $MaxAttempts) {
+                throw "Failed to download '$Uri' after $MaxAttempts attempts. The download source may be unavailable or the URL may no longer be valid."
+            }
+            Start-Sleep -Seconds (5 * $attempt)
+        }
+    }
+}
 # Warn if SSIS is requested on unsupported OS
 if (("ssis" -in $Install) -and ($islinux -or $ismacos)) {
     Write-Warning "The 'ssis' option is only supported on Windows. Skipping SSIS installation."
@@ -145,7 +173,7 @@ if ("sqlengine" -in $Install) {
                 $versionMajor = 13
             }
             "2017" {
-                $exeUri = "https://download.microsoft.com/download/5/A/7/5A7065A2-C81C-4A31-9972-8A31AC9388C1/SQLServer2017-SSEI-Dev.exe"
+                $exeUri = "https://go.microsoft.com/fwlink/?linkid=853016"
                 $boxUri = ""
                 $versionMajor = 14
             }
@@ -192,22 +220,29 @@ if ("sqlengine" -in $Install) {
             Write-Output "Downloading small setup utility"
             # For 2016, 2017 & 2025.
             # Download the small setup utility that allows us to download the full installation media
-            Invoke-WebRequest -Uri $exeUri -OutFile c:\temp\downloadsetup.exe
+            Invoke-DownloadWithRetry -Uri $exeUri -OutFile c:\temp\downloadsetup.exe
             # Use the small setup utility to download the full installation media (*.box and *.exe) files to c:\temp
-            Start-Process -Wait -FilePath ./downloadsetup.exe -ArgumentList /ACTION:Download, /QUIET, /MEDIAPATH:c:\temp
+            $downloadProcess = Start-Process -Wait -PassThru -FilePath ./downloadsetup.exe -ArgumentList /ACTION:Download, /QUIET, /MEDIAPATH:c:\temp
+            $mediaFiles = Get-ChildItem -Name "SQLServer*.box", "SQLServer*.exe" -ErrorAction SilentlyContinue
+            if ($downloadProcess.ExitCode -ne 0 -or -not $mediaFiles) {
+                throw "The small setup utility (downloadsetup.exe) failed to download the SQL Server installation media (exit code $($downloadProcess.ExitCode)). This tool depends on a Microsoft download service that may have been retired or changed for this SQL Server version - check for a direct exe/box download link instead."
+            }
             # Rename the *.box and *.exe files to our standard name.  From here we can process the same as 2019 & 2022
             Get-ChildItem -Name "SQLServer*.box" | Rename-Item -NewName "sqlsetup.box"
             Get-ChildItem -Name "SQLServer*.exe" | Rename-Item -NewName "sqlsetup.exe"
         } else {
             Write-Output "Downloading *.exe and *.box files"
             # For 2019 & 2022
-            Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
-            Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
+            Invoke-DownloadWithRetry -Uri $exeUri -OutFile sqlsetup.exe
+            Invoke-DownloadWithRetry -Uri $boxUri -OutFile sqlsetup.box
             # Add argument here as it's not supported on older versions
             $installArgs += "/USESQLRECOMMENDEDMEMORYLIMITS"
         }
         # Extracts media
         Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
+        if (-not (Test-Path ./setup/setup.exe)) {
+            throw "Extraction of sqlsetup.exe did not produce .\setup\setup.exe. The downloaded installation media is likely incomplete or corrupt - check the download step above for errors."
+        }
 
         # Runs SQL Server installation
         Start-Process -FilePath ".\setup\setup.exe" -ArgumentList $installArgs -Wait -NoNewWindow
@@ -252,24 +287,31 @@ if ("sqlengine" -in $Install) {
             if ($boxUri -eq "") {
                 # For 2016 & 2017
                 if (-not (Test-Path "downloadsetup.exe")) {
-                    Invoke-WebRequest -Uri $exeUri -OutFile downloadsetup.exe
-                    Start-Process -Wait -FilePath ./downloadsetup.exe -ArgumentList /ACTION:Download, /QUIET, /MEDIAPATH:C:\temp
+                    Invoke-DownloadWithRetry -Uri $exeUri -OutFile downloadsetup.exe
+                    $downloadProcess = Start-Process -Wait -PassThru -FilePath ./downloadsetup.exe -ArgumentList /ACTION:Download, /QUIET, /MEDIAPATH:C:\temp
+                    $mediaFiles = Get-ChildItem -Name "SQLServer*.box", "SQLServer*.exe" -ErrorAction SilentlyContinue
+                    if ($downloadProcess.ExitCode -ne 0 -or -not $mediaFiles) {
+                        throw "The small setup utility (downloadsetup.exe) failed to download the SQL Server installation media (exit code $($downloadProcess.ExitCode))."
+                    }
                     Get-ChildItem -Name "SQLServer*.box" | Rename-Item -NewName "sqlsetup.box"
                     Get-ChildItem -Name "SQLServer*.exe" | Rename-Item -NewName "sqlsetup.exe"
                 }
             } else {
                 # For 2019 & 2022
                 if (-not (Test-Path "sqlsetup.exe")) {
-                    Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
+                    Invoke-DownloadWithRetry -Uri $exeUri -OutFile sqlsetup.exe
                 }
                 if (-not (Test-Path "sqlsetup.box")) {
-                    Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
+                    Invoke-DownloadWithRetry -Uri $boxUri -OutFile sqlsetup.box
                 }
             }
 
             # Extract media if not already done
             if (-not (Test-Path "setup\setup.exe")) {
                 Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
+                if (-not (Test-Path "setup\setup.exe")) {
+                    throw "Extraction of sqlsetup.exe did not produce .\setup\setup.exe. The downloaded installation media is likely incomplete or corrupt."
+                }
             }
 
             # Prepare SSIS add-on install arguments for existing instance
