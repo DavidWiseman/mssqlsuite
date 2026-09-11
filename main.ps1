@@ -202,7 +202,9 @@ if ("sqlengine" -in $Install) {
             Invoke-WebRequest -Uri $exeUri -OutFile sqlsetup.exe
             Invoke-WebRequest -Uri $boxUri -OutFile sqlsetup.box
             # Add argument here as it's not supported on older versions
-            $installArgs += "/USESQLRECOMMENDEDMEMORYLIMITS"
+            if ($versionMajor -ge 15) {
+                $installArgs += "/USESQLRECOMMENDEDMEMORYLIMITS"
+            }
         }
         # Extracts media
         Start-Process -Wait -FilePath ./sqlsetup.exe -ArgumentList /qs, /x:setup
