@@ -235,7 +235,8 @@ if ("sqlengine" -in $Install) {
             # For 2019 & 2022
             Invoke-DownloadWithRetry -Uri $exeUri -OutFile sqlsetup.exe
             Invoke-DownloadWithRetry -Uri $boxUri -OutFile sqlsetup.box
-            # Add argument here as it's not supported on older versions
+        }
+        if ($versionMajor -ge 15) {
             $installArgs += "/USESQLRECOMMENDEDMEMORYLIMITS"
         }
         # Extracts media
