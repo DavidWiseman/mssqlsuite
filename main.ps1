@@ -168,7 +168,7 @@ if ("sqlengine" -in $Install) {
         $ProgressPreference = "SilentlyContinue"
         switch ($Version) {
             "2016" {
-                $exeUri = "https://download.microsoft.com/download/f/9/8/f982347c-fee3-4b3e-a8dc-c95383aa3020/sql16_sp3_dlc/en-us/SQLServer2016SP3-FullSlipstream-x64-ENU.exe"
+                $exeUri = "https://download.microsoft.com/download/f/9/8/f982347c-fee3-4b3e-a8dc-c95383aa3020/sql16_sp3_dlc/en-us/SQLServer2016SP3-FullSlipstream-DEV-x64-ENU.exe"
                 $boxUri = "https://download.microsoft.com/download/f/9/8/f982347c-fee3-4b3e-a8dc-c95383aa3020/sql16_sp3_dlc/en-us/SQLServer2016SP3-FullSlipstream-DEV-x64-ENU.box"
                 $versionMajor = 13
             }
